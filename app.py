@@ -1,17 +1,24 @@
 from flask import Flask, request, jsonify, render_template, redirect, url_for
-from flask_login import LoginManager, login_user, login_required, logout_user
+from flask_login import LoginManager, login_user, login_required, logout_user, current_user
 from flask_sqlalchemy import SQLAlchemy
 from flask_migrate import Migrate
 from AI.langchain import workout_query
 from models.user_model import User
-from extensions import db, login_manager
+from models.workout_model import Workout, Exercise
+from functions.AI_Response_Parse import extract_exercise_data
+from extensions import db, login_manager, api_key
+from dotenv import load_dotenv
+import os
+
+api_key = os.getenv('OPENAI_API_KEY')
 
 
 def create_app():
+    load_dotenv()
     app = Flask(__name__)
-    app.config['SQLALCHEMY_DATABASE_URI'] = 'mysql+mysqlconnector://rosanderg913:Titleist913!@localhost/workout_ai'
+    app.config['SQLALCHEMY_DATABASE_URI'] = os.getenv('DATABASE_URI')
+    app.config['SECRET_KEY'] = os.getenv('SECRET_KEY')
     app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False  # Recommended for production
-    app.config['SECRET_KEY'] = 'RiPpErJoHnJoNeS'
     db.init_app(app)
     login_manager.init_app(app)
     with app.app_context():
@@ -24,7 +31,8 @@ def create_app():
 app = create_app()
 
 @app.route('/workout', methods=['POST'])
-def get_workout():
+@login_required
+def create_workout():
     data = request.get_json()
     muscle_group = data.get('muscle_group')
     training_style = data.get('training_style')
@@ -35,8 +43,35 @@ def get_workout():
     
     workout = workout_query(muscle_group, training_style, rep_range)
 
+    if not workout:
+        return jsonify({"error": "Unable to generate workout."}), 500
+    
+    # Access the current user's ID
+    user_id = current_user.id
 
-    return jsonify({'workout': workout.content})
+    new_workout = Workout(
+        user_id=user_id,
+        muscle_group=muscle_group,
+        training_style=training_style
+    )
+
+    exercise_list = extract_exercise_data(workout.content)
+
+    # Create Exercise objects and add to the new workout
+    for exercise in exercise_list:
+        new_exercise = Exercise(
+            workout_id=new_workout.id,
+            name=f"Exercise {exercise['exercise_number']}",
+            sets=exercise['sets'],
+            reps=exercise['reps'],
+            rest=exercise['rest']
+        )
+        new_workout.exercises.append(new_exercise)
+
+    db.session.add(new_workout)
+    db.session.commit()
+    
+    return workout.content
 
 @app.route('/form-template', methods=['GET'])
 def form_template():

@@ -34,3 +34,12 @@ class User(db.Model):
         """Returns the user's unique identifier."""
         return self.id  # Assuming 'id' is your primary key attribute
     
+    def is_authenticated(self):
+        """Returns True if the user is authenticated, i.e. they have provided valid credentials."""
+        return True
+    
+    def is_anonymous(self):
+        """Returns True if the user is anonymous, i.e. they are not logged in."""
+        return False
+    
+    
